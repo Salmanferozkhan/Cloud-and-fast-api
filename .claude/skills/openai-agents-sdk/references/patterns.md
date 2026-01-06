@@ -1,12 +1,131 @@
 # Common Patterns Reference
 
 ## Table of Contents
+- [Chainlit Web UI Integration](#chainlit-web-ui-integration)
 - [Customer Support System](#customer-support-system)
 - [Research Assistant](#research-assistant)
 - [Data Processing Pipeline](#data-processing-pipeline)
 - [Code Assistant](#code-assistant)
 - [RAG Pattern](#rag-pattern)
 - [Human-in-the-Loop](#human-in-the-loop)
+
+## Chainlit Web UI Integration
+
+Build a web chat UI with streaming responses using Chainlit:
+
+```python
+"""Chainlit app with OpenAI Agents SDK streaming.
+
+Run with: chainlit run app.py -w
+"""
+import json
+from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv())  # Load API keys before importing agent
+
+import chainlit as cl
+from agents import Agent, Runner, function_tool
+
+# Define your agent
+@function_tool
+def get_weather(city: str) -> str:
+    """Get weather for a city."""
+    return f"Weather in {city}: Sunny, 72°F"
+
+agent = Agent(
+    name="Assistant",
+    instructions="You are a helpful assistant.",
+    tools=[get_weather],
+)
+
+
+@cl.on_chat_start
+async def on_chat_start():
+    """Initialize chat session."""
+    cl.user_session.set("history", [])
+    await cl.Message(content="Hello! How can I help you?").send()
+
+
+@cl.on_message
+async def on_message(message: cl.Message):
+    """Handle messages with streaming response."""
+    # Build conversation history
+    history = cl.user_session.get("history", [])
+    input_messages = []
+    for h in history:
+        input_messages.append({"role": "user", "content": h["user"]})
+        input_messages.append({"role": "assistant", "content": h["assistant"]})
+    input_messages.append({"role": "user", "content": message.content})
+
+    # Create streaming message placeholder
+    msg = cl.Message(content="")
+    await msg.send()
+
+    # Run agent with streaming (note: not awaited)
+    result = Runner.run_streamed(agent, input_messages)
+
+    full_response = ""
+    tool_calls = {}
+
+    async for event in result.stream_events():
+        # Handle text streaming
+        if event.type == "raw_response_event":
+            if hasattr(event.data, "delta") and event.data.delta:
+                full_response += event.data.delta
+                await msg.stream_token(event.data.delta)
+
+        # Handle tool calls as visible steps
+        elif event.type == "run_item_stream_event":
+            item = event.item
+            item_type = getattr(item, "type", None)
+
+            if item_type == "tool_call_item":
+                tool_name = getattr(item, "name", "tool")
+                tool_call_id = getattr(item, "call_id", id(item))
+                raw_args = getattr(item, "arguments", "{}")
+
+                # Parse and display arguments
+                try:
+                    args = json.loads(raw_args) if raw_args else {}
+                    args_display = json.dumps(args, indent=2)
+                except (json.JSONDecodeError, TypeError):
+                    args_display = str(raw_args)
+
+                # Show tool call as expandable step
+                step = cl.Step(name=tool_name, type="tool")
+                step.input = args_display
+                await step.send()
+                tool_calls[tool_call_id] = step
+
+            elif item_type == "tool_call_output_item":
+                tool_call_id = getattr(item, "call_id", None)
+                output = getattr(item, "output", "")
+
+                if tool_call_id and tool_call_id in tool_calls:
+                    step = tool_calls[tool_call_id]
+                    step.output = output
+                    await step.update()
+
+    await msg.update()
+
+    # Update conversation history
+    history.append({"user": message.content, "assistant": full_response})
+    if len(history) > 10:
+        history = history[-10:]
+    cl.user_session.set("history", history)
+```
+
+Key features:
+- **Streaming text**: Uses `raw_response_event` with `delta` for token-by-token display
+- **Tool visualization**: Shows tool calls as expandable `cl.Step` elements
+- **Conversation history**: Maintains context across messages
+- **Session management**: Uses `cl.user_session` for per-user state
+
+Run the app:
+```bash
+pip install chainlit
+chainlit run app.py -w --port 8005
+```
 
 ## Customer Support System
 

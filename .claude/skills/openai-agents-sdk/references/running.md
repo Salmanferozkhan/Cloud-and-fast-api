@@ -85,7 +85,7 @@ result = await Runner.run(
 
 ## Streaming
 
-Real-time event streaming:
+Real-time event streaming with `Runner.run_streamed()`:
 
 ```python
 from agents import Agent, Runner
@@ -93,22 +93,27 @@ from agents import Agent, Runner
 agent = Agent(name="Writer", instructions="Write detailed content")
 
 async def stream_with_events():
-    result = await Runner.run_streamed(agent, "Write about AI")
+    # Note: run_streamed returns immediately, not awaited
+    result = Runner.run_streamed(agent, "Write about AI")
 
     async for event in result.stream_events():
-        match event.type:
-            case "text_delta":
-                # Partial text output
-                print(event.delta, end="")
-            case "tool_call_start":
-                # Tool invocation beginning
-                print(f"\nCalling tool: {event.tool_name}")
-            case "tool_call_end":
-                # Tool completed
-                print(f"Tool result: {event.result}")
-            case "handoff":
-                # Agent handoff occurred
-                print(f"Handed off to: {event.target_agent}")
+        # Text streaming events
+        if event.type == "raw_response_event":
+            if hasattr(event.data, "delta"):
+                print(event.data.delta, end="", flush=True)
+
+        # Tool call and output events
+        elif event.type == "run_item_stream_event":
+            item = event.item
+            item_type = getattr(item, "type", None)
+
+            if item_type == "tool_call_item":
+                tool_name = getattr(item, "name", "tool")
+                print(f"\nCalling tool: {tool_name}")
+
+            elif item_type == "tool_call_output_item":
+                output = getattr(item, "output", "")
+                print(f"Tool result: {output}")
 
     # Access complete result after streaming
     print(f"\n\nComplete output: {result.final_output}")

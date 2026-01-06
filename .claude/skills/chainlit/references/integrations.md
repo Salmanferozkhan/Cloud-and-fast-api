@@ -1,11 +1,135 @@
 # Integrations Reference
 
 ## Table of Contents
+- [OpenAI Agents SDK](#openai-agents-sdk)
 - [OpenAI](#openai)
 - [LangChain](#langchain)
 - [LlamaIndex](#llamaindex)
 - [Mistral AI](#mistral-ai)
 - [LiteLLM](#litellm)
+
+## OpenAI Agents SDK
+
+Integration with the OpenAI Agents SDK for multi-agent workflows with streaming.
+
+### Setup
+
+```bash
+pip install openai-agents chainlit python-dotenv
+```
+
+### Basic Streaming Integration
+
+```python
+"""OpenAI Agents SDK with Chainlit streaming.
+
+Run with: chainlit run app.py -w
+"""
+import json
+from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv())  # Load API keys BEFORE importing agent
+
+import chainlit as cl
+from agents import Agent, Runner, function_tool
+
+@function_tool
+def get_weather(city: str) -> str:
+    """Get weather for a city."""
+    return f"Weather in {city}: Sunny, 72°F"
+
+agent = Agent(
+    name="Assistant",
+    instructions="You are a helpful assistant.",
+    tools=[get_weather],
+)
+
+
+@cl.on_chat_start
+async def on_chat_start():
+    cl.user_session.set("history", [])
+    await cl.Message(content="Hello! How can I help?").send()
+
+
+@cl.on_message
+async def on_message(message: cl.Message):
+    # Build conversation context
+    history = cl.user_session.get("history", [])
+    input_messages = []
+    for h in history:
+        input_messages.append({"role": "user", "content": h["user"]})
+        input_messages.append({"role": "assistant", "content": h["assistant"]})
+    input_messages.append({"role": "user", "content": message.content})
+
+    # Create streaming message
+    msg = cl.Message(content="")
+    await msg.send()
+
+    # Run with streaming (not awaited!)
+    result = Runner.run_streamed(agent, input_messages)
+
+    full_response = ""
+    tool_calls = {}
+
+    async for event in result.stream_events():
+        # Stream text tokens
+        if event.type == "raw_response_event":
+            if hasattr(event.data, "delta") and event.data.delta:
+                full_response += event.data.delta
+                await msg.stream_token(event.data.delta)
+
+        # Show tool calls as steps
+        elif event.type == "run_item_stream_event":
+            item = event.item
+            item_type = getattr(item, "type", None)
+
+            if item_type == "tool_call_item":
+                tool_name = getattr(item, "name", "tool")
+                tool_call_id = getattr(item, "call_id", id(item))
+                raw_args = getattr(item, "arguments", "{}")
+
+                try:
+                    args = json.loads(raw_args) if raw_args else {}
+                    args_display = json.dumps(args, indent=2)
+                except (json.JSONDecodeError, TypeError):
+                    args_display = str(raw_args)
+
+                step = cl.Step(name=tool_name, type="tool")
+                step.input = args_display
+                await step.send()
+                tool_calls[tool_call_id] = step
+
+            elif item_type == "tool_call_output_item":
+                tool_call_id = getattr(item, "call_id", None)
+                output = getattr(item, "output", "")
+
+                if tool_call_id and tool_call_id in tool_calls:
+                    step = tool_calls[tool_call_id]
+                    step.output = output
+                    await step.update()
+
+    await msg.update()
+
+    # Update history
+    history.append({"user": message.content, "assistant": full_response})
+    if len(history) > 10:
+        history = history[-10:]
+    cl.user_session.set("history", history)
+```
+
+### Key Event Types
+
+| Event Type | Description |
+|------------|-------------|
+| `raw_response_event` | Text streaming, check `event.data.delta` |
+| `run_item_stream_event` | Tool calls and results |
+
+### Item Types in `run_item_stream_event`
+
+| Item Type | Description |
+|-----------|-------------|
+| `tool_call_item` | Tool being invoked (has `name`, `call_id`, `arguments`) |
+| `tool_call_output_item` | Tool result (has `call_id`, `output`) |
 
 ## OpenAI
 
