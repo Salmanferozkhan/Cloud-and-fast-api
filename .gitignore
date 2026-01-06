@@ -74,3 +74,6 @@ nul
 # But DO ignore local Claude settings
 .claude/settings.local.json
 **/settings.local.json
+
+# Personal files
+linkedinpost.md
