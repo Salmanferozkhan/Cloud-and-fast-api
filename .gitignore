@@ -75,5 +75,20 @@ nul
 .claude/settings.local.json
 **/settings.local.json
 
+# Workspace folder
+workspace/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# .NET
+bin/
+obj/
+.vs/
+*.user
+appsettings.json
+appsettings.*.json
+
 # Personal files
 linkedinpost.md
