@@ -23,7 +23,7 @@ The system consists of two workflows:
 
 ### Workflow 1: Data Ingestion Pipeline
 
-![Data Ingestion](n8n%20data%20ingestion.png)
+![Data Ingestion](images/n8n-data-ingestion.png)
 
 ```
 Google Sheets → Edit Fields → OpenAI Embeddings → Supabase Vector Store
@@ -42,7 +42,7 @@ Google Sheets → Edit Fields → OpenAI Embeddings → Supabase Vector Store
 
 ### Workflow 2: RAG Chat Agent
 
-![RAG Agent](RAG.png)
+![RAG Agent](images/rag-agent.png)
 
 ```
 Chat Trigger → AI Agent → Response
