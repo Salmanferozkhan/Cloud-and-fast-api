@@ -4,9 +4,9 @@ A production-ready RAG (Retrieval Augmented Generation) system built with n8n - 
 
 ## Demo Video
 
-https://github.com/user-attachments/assets/demo.mp4
+https://github.com/Salmanferozkhan/Cloud-and-fast-api/raw/master/n8n/demo.mp4
 
-> Upload `demo.mp4` to GitHub and replace the link above with the actual video URL.
+> Click the link above to download and watch the demo video.
 
 ## Overview
 
