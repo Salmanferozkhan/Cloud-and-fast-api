@@ -1,12 +1,16 @@
-# n8n RAG System
+# n8n RAG System + Voice Agent
 
-A production-ready RAG (Retrieval Augmented Generation) system built with n8n - zero code required.
+A production-ready RAG (Retrieval Augmented Generation) system built with n8n - zero code required. Now with **Voice AI** powered by ElevenLabs!
 
-## Demo Video
+## Demo Videos
 
+### RAG Chatbot Demo
 https://github.com/Salmanferozkhan/Cloud-and-fast-api/raw/master/n8n/demo.mp4
 
-> Click the link above to download and watch the demo video.
+### Voice Agent Demo (NEW!)
+https://github.com/Salmanferozkhan/Cloud-and-fast-api/raw/master/n8n/voice-agent-demo.mp4
+
+> Click the links above to download and watch the demo videos.
 
 ## Overview
 
@@ -16,10 +20,11 @@ This project demonstrates how to build an intelligent chatbot that answers quest
 - **OpenAI Embeddings** - Vector generation
 - **Supabase Vector Store** - Vector database
 - **Google Gemini** - LLM for chat responses
+- **ElevenLabs** - AI voice synthesis for voice agents
 
 ## Architecture
 
-The system consists of two workflows:
+The system consists of three workflows:
 
 ### Workflow 1: Data Ingestion Pipeline
 
@@ -62,6 +67,24 @@ Chat Trigger → AI Agent → Response
 | Supabase Vector Store | Retrieves relevant documents |
 | Embeddings OpenAI | Converts queries to vectors |
 
+### Workflow 3: Voice Agent (NEW!)
+
+```
+Phone Call → ElevenLabs Voice → RAG Retrieval → AI Response → Voice Output
+```
+
+| Component | Function |
+|-----------|----------|
+| ElevenLabs | Natural voice synthesis |
+| RAG Pipeline | Knowledge retrieval from your data |
+| n8n | Workflow orchestration |
+
+**Features:**
+- Answers phone calls automatically
+- Speaks like a human using ElevenLabs
+- Retrieves answers from your knowledge base (RAG)
+- Works 24/7 without breaks
+
 ## Tech Stack
 
 | Technology | Purpose |
@@ -71,6 +94,7 @@ Chat Trigger → AI Agent → Response
 | OpenAI | Embeddings generation |
 | Supabase | Vector database |
 | Google Gemini | Chat model |
+| ElevenLabs | Voice AI synthesis |
 
 ## Benefits
 
@@ -88,6 +112,7 @@ Chat Trigger → AI Agent → Response
    - Supabase credentials
    - Google Gemini API Key
    - Google Sheets access
+   - ElevenLabs API Key (for voice agent)
 3. Import the workflows
 4. Run data ingestion first
 5. Start chatting with your RAG agent
@@ -99,6 +124,9 @@ Chat Trigger → AI Agent → Response
 - Document search and retrieval
 - FAQ automation
 - Research assistants
+- **Voice AI phone agents**
+- **Automated call handling**
+- **24/7 voice support**
 
 ## Acknowledgments
 
