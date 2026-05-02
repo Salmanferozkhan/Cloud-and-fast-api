@@ -34,11 +34,23 @@ class Settings(BaseSettings):
         elif v.startswith("postgresql://") and "+asyncpg" not in v:
             v = "postgresql+asyncpg://" + v[len("postgresql://"):]
 
-        # asyncpg doesn't accept psycopg2's `sslmode` query param; it negotiates
-        # SSL automatically when the server requires it (e.g. Neon, Supabase).
-        if "+asyncpg" in v and "sslmode" in v:
+        # asyncpg rejects psycopg2-only query params. Strip them — asyncpg
+        # negotiates SSL automatically when the server requires it (e.g. Neon).
+        psycopg2_only = {
+            "sslmode",
+            "channel_binding",
+            "gssencmode",
+            "sslcert",
+            "sslkey",
+            "sslrootcert",
+            "sslcrl",
+        }
+        if "+asyncpg" in v and any(p in v for p in psycopg2_only):
             parsed = urlparse(v)
-            kept = [(k, val) for k, val in parse_qsl(parsed.query) if k != "sslmode"]
+            kept = [
+                (k, val) for k, val in parse_qsl(parsed.query)
+                if k not in psycopg2_only
+            ]
             v = urlunparse(parsed._replace(query=urlencode(kept)))
 
         return v
