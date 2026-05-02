@@ -1,6 +1,16 @@
+---
+title: Milk & Water Tracking
+emoji: 🥛
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Milk Tracking Application
 
-A chat-based milk tracking application to record daily milk purchases from multiple suppliers and generate monthly payment reports.
+A chat-based milk + water tracking application to record daily purchases from multiple suppliers and generate monthly payment reports.
 
 ## Tech Stack
 

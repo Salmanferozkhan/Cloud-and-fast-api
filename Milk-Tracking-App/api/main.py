@@ -1,13 +1,32 @@
 """FastAPI application entry point for Milk Tracking API."""
 
+import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlmodel import select
 
-from app.database import create_db_and_tables
+from app.database import async_session_maker, create_db_and_tables
+from app.models import User
 from app.routers import auth, entries, reports, suppliers, water
+from app.security import hash_password
+
+
+async def _seed_initial_user() -> None:
+    # On single-container deploys (e.g. HF Spaces) the API port is not exposed
+    # externally, so provision the agent's login user from env on first boot.
+    email = os.getenv("API_EMAIL")
+    password = os.getenv("API_PASSWORD")
+    if not email or not password:
+        return
+    async with async_session_maker() as session:
+        existing = await session.execute(select(User).where(User.email == email))
+        if existing.scalar_one_or_none():
+            return
+        session.add(User(email=email, hashed_password=hash_password(password)))
+        await session.commit()
 
 
 @asynccontextmanager
@@ -20,10 +39,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Yields:
         None: Application is ready to handle requests.
     """
-    # Startup: Create database tables
     await create_db_and_tables()
+    await _seed_initial_user()
     yield
-    # Shutdown: Cleanup if needed
 
 
 app = FastAPI(
