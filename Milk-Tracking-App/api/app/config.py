@@ -1,6 +1,7 @@
 """Application configuration using pydantic-settings."""
 
 from functools import lru_cache
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,9 +30,17 @@ class Settings(BaseSettings):
         # Render and most managed Postgres providers expose `postgres://` or
         # `postgresql://` URIs; SQLAlchemy's async stack needs the asyncpg driver.
         if v.startswith("postgres://"):
-            return "postgresql+asyncpg://" + v[len("postgres://"):]
-        if v.startswith("postgresql://") and "+asyncpg" not in v:
-            return "postgresql+asyncpg://" + v[len("postgresql://"):]
+            v = "postgresql+asyncpg://" + v[len("postgres://"):]
+        elif v.startswith("postgresql://") and "+asyncpg" not in v:
+            v = "postgresql+asyncpg://" + v[len("postgresql://"):]
+
+        # asyncpg doesn't accept psycopg2's `sslmode` query param; it negotiates
+        # SSL automatically when the server requires it (e.g. Neon, Supabase).
+        if "+asyncpg" in v and "sslmode" in v:
+            parsed = urlparse(v)
+            kept = [(k, val) for k, val in parse_qsl(parsed.query) if k != "sslmode"]
+            v = urlunparse(parsed._replace(query=urlencode(kept)))
+
         return v
 
 
