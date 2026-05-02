@@ -1,0 +1,130 @@
+# =============================================================================
+# Deployment: milk-agent (Chainlit AI Agent UI)
+# =============================================================================
+# WHY Deployment? Same reasons as the API:
+# - Self-healing: auto-recreates crashed pods
+# - Scaling: can run multiple UI instances behind the Service
+# - Rolling updates: update the agent image with zero downtime
+# - Rollback: instantly revert bad deployments
+#
+# NOTE on scaling Chainlit:
+# - Chainlit uses WebSocket connections for real-time chat.
+# - With multiple replicas, you need "sticky sessions" (sessionAffinity)
+#   so a user's WebSocket stays connected to the same pod.
+# - For local dev, 1 replica avoids this complexity.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: milk-agent
+  namespace: milk-tracking
+  labels:
+    app: milk-tracking
+    component: agent
+spec:
+  # WHY 1 replica for agent?
+  # Chainlit uses WebSocket connections. With multiple replicas, a user's
+  # initial HTTP request might hit pod-1 but the WebSocket upgrade could
+  # land on pod-2 (which has no session context) → broken chat.
+  # For production multi-replica, configure sessionAffinity or use an
+  # Ingress controller with sticky sessions.
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: milk-tracking
+      component: agent
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: milk-tracking
+        component: agent
+    spec:
+      restartPolicy: Always
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-api
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - >
+              until curl -sf http://milk-api:8076/health; do
+                echo "waiting for api...";
+                sleep 3;
+              done
+
+      containers:
+        - name: milk-agent
+          image: milk-tracking-app-agent:latest
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 8005
+              name: http
+              protocol: TCP
+
+          env:
+            - name: API_BASE_URL
+              value: "http://milk-api:8076"
+            - name: API_EMAIL
+              value: "user@example.com"
+            - name: API_PASSWORD
+              value: "password123"
+            - name: GEMINI_API_KEY
+              value: "AIzaSyAQheFMdiMXGa0FAEtZc5ALKWujwZeblkk"
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8005
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8005
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+
+      terminationGracePeriodSeconds: 30

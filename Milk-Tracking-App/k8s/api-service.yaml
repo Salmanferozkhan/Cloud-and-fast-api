@@ -1,0 +1,29 @@
+# =============================================================================
+# Service: milk-api (ClusterIP)
+# =============================================================================
+# WHY ClusterIP for the API?
+# - The API is an internal service consumed by the Chainlit agent, not
+#   directly by end users. ClusterIP keeps it cluster-internal.
+# - The agent pod references http://milk-api:8076 which resolves via
+#   Kubernetes DNS to this Service's ClusterIP.
+# - If you later need external API access (e.g., for Swagger UI during dev),
+#   use `kubectl port-forward svc/milk-api 8076:8076 -n milk-tracking`.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: milk-api
+  namespace: milk-tracking
+  labels:
+    app: milk-tracking
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8076
+      targetPort: 8076
+      protocol: TCP
+      name: http
+  selector:
+    app: milk-tracking
+    component: api

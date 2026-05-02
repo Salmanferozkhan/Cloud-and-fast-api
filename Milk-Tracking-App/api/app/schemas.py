@@ -222,3 +222,77 @@ class MonthlyReport(BaseModel):
     suppliers: list[SupplierReport]
     grand_total_liters: float
     grand_total_amount: float
+
+
+# WaterEntry Schemas
+
+
+class WaterEntryCreate(BaseModel):
+    """Schema for creating a new water bottle entry.
+
+    Attributes:
+        date: Date of the water bottle delivery.
+        bottles: Number of bottles delivered (must be positive).
+        rate_per_bottle: Optional price per bottle. When omitted, the server
+            applies the default rate of 80.0.
+    """
+
+    date: dt.date
+    bottles: int = Field(..., gt=0)
+    rate_per_bottle: float | None = Field(default=None, gt=0)
+
+
+class WaterEntryUpdate(BaseModel):
+    """Schema for updating an existing water bottle entry.
+
+    All fields are optional - only provided fields will be updated.
+
+    Attributes:
+        date: Date of the water bottle delivery.
+        bottles: Number of bottles delivered (must be positive).
+        rate_per_bottle: Price per bottle (must be positive).
+    """
+
+    date: dt.date | None = None
+    bottles: int | None = Field(default=None, gt=0)
+    rate_per_bottle: float | None = Field(default=None, gt=0)
+
+
+class WaterEntryResponse(BaseModel):
+    """Schema for water bottle entry response.
+
+    Attributes:
+        id: Entry's unique identifier.
+        date: Date of the water bottle delivery.
+        bottles: Number of bottles delivered.
+        rate_per_bottle: Price per bottle at time of delivery.
+        created_at: Timestamp when entry was created.
+    """
+
+    id: int
+    date: dt.date
+    bottles: int
+    rate_per_bottle: float
+    created_at: dt.datetime
+
+    model_config = {"from_attributes": True}
+
+
+class WaterMonthlyReport(BaseModel):
+    """Schema for monthly water bottle payment report.
+
+    Attributes:
+        year: The report year.
+        month: The report month (1-12).
+        total_bottles: Sum of bottles across all entries in the month.
+        rate_per_bottle_avg: Weighted average rate (total_amount / total_bottles).
+        total_amount: Sum of bottles * rate_per_bottle for each entry.
+        entry_count: Number of entries aggregated.
+    """
+
+    year: int
+    month: int = Field(..., ge=1, le=12)
+    total_bottles: int
+    rate_per_bottle_avg: float
+    total_amount: float
+    entry_count: int

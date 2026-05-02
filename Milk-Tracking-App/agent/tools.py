@@ -427,3 +427,185 @@ async def add_supplier(name: str, milk_type: str, rate: float) -> str:
         return f"Error adding supplier: {str(e)}"
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+@function_tool
+async def add_water_entry(
+    bottles: int,
+    entry_date: str | None = None,
+    rate_per_bottle: float | None = None,
+) -> str:
+    """Add a water bottle delivery entry.
+
+    Records a water bottle delivery in the system. If no date is specified,
+    uses today's date. If no rate is specified, the server applies its default
+    rate (Rs. 80 per bottle).
+
+    Args:
+        bottles: Number of water bottles delivered (must be positive).
+        entry_date: Optional date in YYYY-MM-DD format. Uses today if not specified.
+        rate_per_bottle: Optional rate per bottle. Server default (Rs. 80) used if omitted.
+
+    Returns:
+        Confirmation message with entry details.
+    """
+    try:
+        headers = await get_auth_headers()
+
+        if entry_date is None:
+            entry_date = date.today().isoformat()
+
+        payload: dict = {
+            "date": entry_date,
+            "bottles": bottles,
+        }
+        if rate_per_bottle is not None:
+            payload["rate_per_bottle"] = rate_per_bottle
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{API_BASE_URL}/api/v1/water",
+                json=payload,
+                headers=headers,
+            )
+
+            if response.status_code == 401:
+                clear_token_cache()
+                return "Authentication failed. Please check API credentials."
+
+            response.raise_for_status()
+            entry = response.json()
+
+            amount = entry["bottles"] * entry["rate_per_bottle"]
+
+            return (
+                f"Added water entry:\n"
+                f"- Date: {entry['date']}\n"
+                f"- Bottles: {entry['bottles']}\n"
+                f"- Rate: Rs. {entry['rate_per_bottle']:.2f}/bottle\n"
+                f"- Amount: Rs. {amount:.2f}\n"
+                f"- Entry ID: {entry['id']}"
+            )
+
+    except httpx.HTTPError as e:
+        return f"Error adding water entry: {str(e)}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@function_tool
+async def list_water_entries(
+    start_date: str | None = None, end_date: str | None = None
+) -> str:
+    """List water bottle entries with optional date filtering.
+
+    Retrieves water bottle delivery entries from the system. Can filter by date range.
+
+    Args:
+        start_date: Optional start date in YYYY-MM-DD format (inclusive).
+        end_date: Optional end date in YYYY-MM-DD format (inclusive).
+
+    Returns:
+        Formatted list of water entries with details.
+    """
+    try:
+        headers = await get_auth_headers()
+
+        params = {}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{API_BASE_URL}/api/v1/water",
+                params=params,
+                headers=headers,
+            )
+
+            if response.status_code == 401:
+                clear_token_cache()
+                return "Authentication failed. Please check API credentials."
+
+            response.raise_for_status()
+            entries = response.json()
+
+            if not entries:
+                date_range = ""
+                if start_date or end_date:
+                    date_range = f" between {start_date or 'start'} and {end_date or 'now'}"
+                return f"No water entries found{date_range}."
+
+            result = f"Water Entries ({len(entries)} total):\n"
+            result += "-" * 50 + "\n"
+
+            for entry in entries:
+                rate = entry["rate_per_bottle"]
+                amount = entry["bottles"] * rate
+                result += (
+                    f"[{entry['date']}] {entry['bottles']} bottles "
+                    f"@ Rs.{rate:.2f} = Rs.{amount:.2f}\n"
+                )
+
+            return result
+
+    except httpx.HTTPError as e:
+        return f"Error listing water entries: {str(e)}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@function_tool
+async def get_water_monthly_report(year: int, month: int) -> str:
+    """Get monthly water bottle bill report.
+
+    Generates a monthly report showing total bottles delivered and the total
+    amount payable for water bottles.
+
+    Args:
+        year: The year for the report (e.g., 2026).
+        month: The month for the report (1-12).
+
+    Returns:
+        Formatted monthly water bill with totals.
+    """
+    try:
+        if month < 1 or month > 12:
+            return "Invalid month. Please provide a month between 1 and 12."
+
+        headers = await get_auth_headers()
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{API_BASE_URL}/api/v1/water/reports/monthly/{year}/{month}",
+                headers=headers,
+            )
+
+            if response.status_code == 401:
+                clear_token_cache()
+                return "Authentication failed. Please check API credentials."
+
+            response.raise_for_status()
+            report = response.json()
+
+            month_names = [
+                "", "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            ]
+            month_name = month_names[month]
+
+            result = f"Monthly Water Bill - {month_name} {year}\n"
+            result += "=" * 60 + "\n"
+            result += f"Total Bottles: {report['total_bottles']}\n"
+            result += f"Average Rate: Rs. {report['rate_per_bottle_avg']:.2f}/bottle\n"
+            result += f"Total Entries: {report['entry_count']}\n"
+            result += "-" * 60 + "\n"
+            result += f"Total Bill: Rs. {report['total_amount']:.2f}\n"
+
+            return result
+
+    except httpx.HTTPError as e:
+        return f"Error getting water monthly report: {str(e)}"
+    except Exception as e:
+        return f"Error: {str(e)}"

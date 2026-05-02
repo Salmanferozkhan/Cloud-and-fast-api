@@ -1,0 +1,125 @@
+# =============================================================================
+# StatefulSet: milk-db (PostgreSQL 16 Alpine)
+# =============================================================================
+# WHY StatefulSet instead of Deployment?
+# - STABLE NETWORK IDENTITY: Pod always gets the same name (milk-db-0),
+#   not a random suffix like Deployments (milk-db-7f8b9c-x4k2p).
+#   This matters because the API connects to "milk-db" via the Service.
+# - STABLE STORAGE: Each replica gets its own PersistentVolumeClaim that
+#   survives pod restarts, rescheduling, and even node failures.
+# - ORDERED OPERATIONS: Pods start/stop in order (0, 1, 2...).
+#   Critical for database replication (primary starts before replicas).
+#
+# WHY NOT a bare Pod?
+# - Bare Pod dies → gone forever. Nobody recreates it.
+# - StatefulSet dies → Kubernetes auto-recreates it with the SAME name
+#   and reattaches the SAME PersistentVolume (your data survives).
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: milk-db
+  namespace: milk-tracking
+  labels:
+    app: milk-tracking
+    component: db
+spec:
+  # WHY serviceName? StatefulSet requires a "headless" Service name.
+  # This creates DNS records like milk-db-0.milk-db.milk-tracking.svc.cluster.local
+  # For our use case, the regular ClusterIP Service (milk-db) is sufficient
+  # for the API to connect. The headless Service is a StatefulSet requirement.
+  serviceName: milk-db
+  replicas: 1  # WHY 1? Single PostgreSQL instance for local dev.
+               # For production HA, use a PostgreSQL operator (e.g., CloudNativePG).
+
+  selector:
+    matchLabels:
+      app: milk-tracking
+      component: db
+
+  template:
+    metadata:
+      labels:
+        app: milk-tracking
+        component: db
+    spec:
+      restartPolicy: Always
+
+      securityContext:
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+        # NOTE: No runAsNonRoot — postgres needs root for initialization,
+        # then drops to UID 70 (postgres user) automatically.
+
+      containers:
+        - name: milk-db
+          image: postgres:16-alpine
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 5432
+              name: postgres
+              protocol: TCP
+
+          env:
+            - name: POSTGRES_USER
+              value: "milktrack"
+            - name: POSTGRES_PASSWORD
+              value: "milktrack_secret"
+            - name: POSTGRES_DB
+              value: "milk_tracking"
+            # WHY PGDATA? By default, postgres writes to /var/lib/postgresql/data.
+            # With PVC, we set a subdirectory to avoid "lost+found" conflicts
+            # that occur when mounting a volume directly at the data directory.
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "milktrack", "-d", "milk_tracking"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "milktrack", "-d", "milk_tracking"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+
+  # WHY volumeClaimTemplates?
+  # This is the StatefulSet superpower. Each replica gets its OWN PVC.
+  # If the pod is deleted and recreated, it reattaches to the SAME PVC.
+  # Your data survives pod restarts, crashes, and rescheduling.
+  #
+  # Compare with bare Pod + emptyDir:
+  #   Pod deleted → data LOST forever
+  # StatefulSet + PVC:
+  #   Pod deleted → recreated → same data reattached → no data loss
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # WHY 1Gi? Sufficient for local dev. In production, size based on
+        # expected data growth. PVCs can be expanded (if StorageClass allows)
+        # but NOT shrunk, so start reasonable.
+        resources:
+          requests:
+            storage: 1Gi

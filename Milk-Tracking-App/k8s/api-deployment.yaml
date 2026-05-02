@@ -1,0 +1,148 @@
+# =============================================================================
+# Deployment: milk-api (FastAPI Backend)
+# =============================================================================
+# WHY Deployment instead of bare Pod?
+# - SELF-HEALING: Pod crashes or gets deleted → Deployment recreates it
+#   automatically. Bare Pods stay dead.
+# - SCALING: `kubectl scale deployment milk-api --replicas=3` instantly
+#   creates 3 API instances. Service load-balances across all of them.
+# - ROLLING UPDATES: New image version? Deployment replaces pods one by one
+#   with zero downtime. Old version keeps serving until new is ready.
+# - ROLLBACK: Bad deploy? `kubectl rollout undo deployment/milk-api`
+#   instantly reverts to the previous version.
+#
+# WHY NOT StatefulSet for the API?
+# - The API is STATELESS — it doesn't store data locally.
+#   Any replica can handle any request. No stable identity needed.
+#   Deployments are simpler and more flexible for stateless workloads.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: milk-api
+  namespace: milk-tracking
+  labels:
+    app: milk-tracking
+    component: api
+spec:
+  # WHY 2 replicas? Minimum for availability during rolling updates.
+  # When updating, K8s terminates 1 old pod and starts 1 new pod.
+  # With 2 replicas, 1 pod is always serving traffic → zero downtime.
+  # With 1 replica, there's a brief gap during updates.
+  replicas: 2
+
+  # WHY selector? Tells the Deployment which pods it "owns".
+  # Must match the template labels exactly.
+  selector:
+    matchLabels:
+      app: milk-tracking
+      component: api
+
+  # WHY strategy? Controls how rolling updates happen.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # WHY maxSurge 1? Allow 1 extra pod during updates (so 3 total briefly).
+      # This means the new version starts BEFORE the old one stops.
+      maxSurge: 1
+      # WHY maxUnavailable 0? Never let available pods drop below desired count.
+      # Combined with maxSurge=1, this ensures zero-downtime updates:
+      # new pod starts → passes readiness → old pod terminates.
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: milk-tracking
+        component: api
+    spec:
+      restartPolicy: Always
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: wait-for-db
+          image: postgres:16-alpine
+          imagePullPolicy: Never
+          command:
+            - sh
+            - -c
+            - >
+              until pg_isready -h milk-db -p 5432 -U milktrack; do
+                echo "waiting for db...";
+                sleep 2;
+              done
+
+      containers:
+        - name: milk-api
+          image: milk-tracking-app-api:latest
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 8076
+              name: http
+              protocol: TCP
+
+          env:
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://milktrack:milktrack_secret@milk-db:5432/milk_tracking"
+            - name: SECRET_KEY
+              value: "your-super-secret-key-change-in-production"
+            - name: ALGORITHM
+              value: "HS256"
+            - name: ACCESS_TOKEN_EXPIRE_MINUTES
+              value: "30"
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8076
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8076
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # WHY lifecycle preStop?
+          # When K8s terminates a pod (during scale-down or update), it sends
+          # SIGTERM. But the Service might still route traffic for a few seconds.
+          # The sleep gives time for the Service to remove this pod from endpoints
+          # BEFORE the app shuts down → no failed requests during updates.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+
+      # WHY terminationGracePeriodSeconds?
+      # After SIGTERM, K8s waits this long before force-killing (SIGKILL).
+      # 30s gives the app time to finish in-flight requests gracefully.
+      terminationGracePeriodSeconds: 30

@@ -1,0 +1,37 @@
+# =============================================================================
+# Service: milk-agent (NodePort - External Access)
+# =============================================================================
+# WHY NodePort instead of ClusterIP?
+# - The Chainlit agent is the user-facing UI. Users need to access it from
+#   their browser, which is outside the Kubernetes cluster.
+# - NodePort exposes the service on a static port (30005) on every node's IP.
+#   On Docker Desktop, that means http://localhost:30005 opens the Chainlit UI.
+# - Alternative: LoadBalancer type would also work on Docker Desktop (it maps
+#   to localhost), but NodePort is more explicit about the port mapping and
+#   works identically across all local Kubernetes distributions (kind, minikube, etc.).
+# - In production, you would use an Ingress controller (nginx, traefik) with
+#   TLS termination instead of NodePort.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: milk-agent
+  namespace: milk-tracking
+  labels:
+    app: milk-tracking
+    component: agent
+spec:
+  type: NodePort
+  ports:
+    - port: 8005
+      targetPort: 8005
+      # WHY nodePort 30005?
+      # NodePort range is 30000-32767 by default. We chose 30005 to mirror
+      # the application port (8005) for easy recall. Users access the UI at
+      # http://localhost:30005 from their browser.
+      nodePort: 30005
+      protocol: TCP
+      name: http
+  selector:
+    app: milk-tracking
+    component: agent

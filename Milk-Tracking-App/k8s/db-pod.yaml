@@ -1,0 +1,130 @@
+# =============================================================================
+# Pod: milk-db (PostgreSQL 16 Alpine)
+# =============================================================================
+# WHY a Pod instead of Deployment for local dev?
+# - Simplicity: no ReplicaSet overhead for a single-instance database
+# - Database pods are typically StatefulSets in production for stable identity
+# - For local Docker Desktop development, a bare Pod is sufficient
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: milk-db
+  namespace: milk-tracking
+  labels:
+    # WHY these labels? Services use selectors to route traffic to pods.
+    # The "app" label groups all components; "component" distinguishes them.
+    app: milk-tracking
+    component: db
+spec:
+  # WHY restartPolicy Always? If postgres crashes, Kubernetes will restart it
+  # automatically without manual intervention - essential for a database.
+  restartPolicy: Always
+
+  securityContext:
+    # WHY fsGroup 999? The postgres alpine image writes data files as the
+    # "postgres" group (GID 999 in alpine). Setting fsGroup ensures volumes
+    # are writable by the postgres process.
+    fsGroup: 999
+    # WHY seccompProfile RuntimeDefault? Restricts the set of system calls
+    # the container can make, reducing the attack surface. RuntimeDefault
+    # is the Docker/containerd default profile - balanced security.
+    seccompProfile:
+      type: RuntimeDefault
+    # NOTE: We deliberately do NOT set runAsNonRoot or runAsUser here.
+    # The postgres:16-alpine image runs its entrypoint as root to initialize
+    # the database, then drops privileges to the postgres user (UID 70).
+    # Forcing runAsNonRoot would prevent initialization from completing.
+
+  containers:
+    - name: milk-db
+      image: postgres:16-alpine
+      # WHY imagePullPolicy Never? The image is already built locally on
+      # Docker Desktop. "Never" tells Kubernetes not to try pulling from a
+      # registry, which would fail since this image does not exist there.
+      imagePullPolicy: Never
+
+      ports:
+        - containerPort: 5432
+          # WHY name the port? Allows services and other manifests to
+          # reference the port by name instead of number, improving readability.
+          name: postgres
+          protocol: TCP
+
+      env:
+        # WHY inline env vars instead of ConfigMap/Secret?
+        # For local development, inline values are simpler to manage.
+        # In production, these MUST move to Kubernetes Secrets.
+        - name: POSTGRES_USER
+          value: "milktrack"
+        - name: POSTGRES_PASSWORD
+          value: "milktrack_secret"
+        - name: POSTGRES_DB
+          value: "milk_tracking"
+
+      resources:
+        # WHY resource requests and limits?
+        # - requests: Scheduler guarantees this minimum is available on the node.
+        #   Without requests, pods may be scheduled on overloaded nodes.
+        # - limits: Hard ceiling prevents a runaway query from consuming all
+        #   node memory/CPU and starving other pods (noisy neighbor problem).
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          # WHY 500m CPU limit for DB (not 1000m)?
+          # PostgreSQL on local dev with light load does not need a full core.
+          # Keeping it at 500m leaves more CPU headroom for the API and agent.
+          cpu: "500m"
+
+      # WHY livenessProbe?
+      # Detects if PostgreSQL has become unresponsive (e.g., deadlock, OOM).
+      # Kubernetes will restart the container if the probe fails consecutively.
+      livenessProbe:
+        exec:
+          command:
+            - pg_isready
+            - -U
+            - milktrack
+            - -d
+            - milk_tracking
+        # WHY initialDelaySeconds 15? PostgreSQL needs time to initialize
+        # the data directory on first run. Without this delay, the probe
+        # would fire before postgres is ready and trigger a restart loop.
+        initialDelaySeconds: 15
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+
+      # WHY readinessProbe?
+      # Controls whether the Service routes traffic to this pod. Until
+      # readiness passes, the pod's IP is removed from the Service endpoints.
+      # This prevents the API from connecting before the DB is truly ready.
+      readinessProbe:
+        exec:
+          command:
+            - pg_isready
+            - -U
+            - milktrack
+            - -d
+            - milk_tracking
+        # WHY initialDelaySeconds 5? Shorter than liveness because readiness
+        # should start checking sooner - we want traffic routed ASAP once ready.
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+
+      volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+
+  volumes:
+    - name: postgres-data
+      # WHY emptyDir instead of PVC?
+      # For local development on Docker Desktop, emptyDir is simpler and avoids
+      # storage class configuration. Data persists across container restarts
+      # within the same pod lifecycle but is lost if the pod is deleted.
+      # In production, use a PersistentVolumeClaim with a durable StorageClass.
+      emptyDir: {}

@@ -1,0 +1,76 @@
+services:
+  # ---- PostgreSQL Database ----
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-milktrack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-milktrack_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-milk_tracking}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-milktrack} -d ${POSTGRES_DB:-milk_tracking}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  # ---- FastAPI Backend API ----
+  api:
+    build:
+      context: ./api
+      target: production
+    restart: unless-stopped
+    ports:
+      - "8076:8076"
+    env_file:
+      - ./api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-milktrack}:${POSTGRES_PASSWORD:-milktrack_secret}@db:5432/${POSTGRES_DB:-milk_tracking}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8076/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  # ---- Chainlit AI Agent ----
+  agent:
+    build:
+      context: ./agent
+      target: production
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    env_file:
+      - ./agent/.env
+    environment:
+      API_BASE_URL: http://api:8076
+    depends_on:
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+volumes:
+  postgres_data:
+    driver: local

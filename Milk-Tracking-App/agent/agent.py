@@ -16,6 +16,9 @@ from tools import (
     list_suppliers,
     update_supplier_rate,
     add_supplier,
+    add_water_entry,
+    list_water_entries,
+    get_water_monthly_report,
 )
 
 # Disable tracing for cleaner output
@@ -42,7 +45,7 @@ llm_model = OpenAIChatCompletionsModel(
 )
 
 # System prompt for the milk tracking assistant
-SYSTEM_PROMPT = """You are a helpful Milk Tracking Assistant that helps users manage milk collection records from suppliers.
+SYSTEM_PROMPT = """You are a helpful Milk Tracking Assistant that helps users manage milk collection records from suppliers and water bottle deliveries.
 
 You can help users with the following tasks:
 
@@ -63,7 +66,13 @@ You can help users with the following tasks:
    - Add new suppliers with name, milk type (cow/buffalo), and rate
    - Update supplier rates when prices change
 
-When users ask about their milk collection:
+5. **Water Bottle Tracking**: Record water bottle deliveries
+   - Default rate is Rs. 80 per bottle (only specify a rate if the user mentions a different price)
+   - If no date is specified, use today's date
+   - List water entries with optional date range filters
+   - Generate monthly water bills showing total bottles and amount
+
+When users ask about their milk collection or water deliveries:
 - Be concise and helpful
 - Use the appropriate tool to interact with the system
 - Format numbers nicely (2 decimal places for liters and amounts)
@@ -77,6 +86,7 @@ Remember:
 - Milk types are either 'cow' or 'buffalo'
 - Rates are in Rs. per liter
 - All amounts are calculated as liters * rate_per_liter
+- Water bottles are integers (whole bottles only); default rate is Rs. 80/bottle unless the user specifies otherwise
 """
 
 # Create the Milk Tracking Agent
@@ -91,5 +101,8 @@ milk_tracking_agent = Agent(
         list_suppliers,
         update_supplier_rate,
         add_supplier,
+        add_water_entry,
+        list_water_entries,
+        get_water_monthly_report,
     ],
 )

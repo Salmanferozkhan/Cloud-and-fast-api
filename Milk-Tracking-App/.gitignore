@@ -38,3 +38,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 nul
+
+# Local binaries
+kind.exe

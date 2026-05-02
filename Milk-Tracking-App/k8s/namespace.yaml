@@ -1,0 +1,18 @@
+# =============================================================================
+# Namespace: milk-tracking
+# =============================================================================
+# WHY a dedicated namespace?
+# - Provides logical isolation from other workloads on the cluster
+# - Enables per-namespace resource quotas and network policies
+# - Makes cleanup trivial: `kubectl delete namespace milk-tracking` removes everything
+# - Avoids naming collisions with other apps in the default namespace
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: milk-tracking
+  labels:
+    # WHY labels on namespace? Enables selecting all resources belonging to
+    # this app across namespaces, useful for monitoring and network policies
+    app: milk-tracking
+    environment: local

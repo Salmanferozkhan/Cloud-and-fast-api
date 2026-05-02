@@ -1,0 +1,116 @@
+# =============================================================================
+# Pod: milk-agent (Chainlit Agent UI)
+# =============================================================================
+# WHY an initContainer that waits for the API?
+# - The agent makes HTTP calls to the FastAPI backend on startup (e.g., to
+#   authenticate and get a JWT token). If the API is not ready, the agent
+#   will fail with connection errors.
+# - We use curl instead of pg_isready because we are checking an HTTP
+#   endpoint, not a PostgreSQL server.
+# - The -sf flags: -s (silent, no progress bar), -f (fail silently on HTTP
+#   errors, returning non-zero exit code so the until loop continues).
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: milk-agent
+  namespace: milk-tracking
+  labels:
+    app: milk-tracking
+    component: agent
+spec:
+  restartPolicy: Always
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  initContainers:
+    - name: wait-for-api
+      image: curlimages/curl:latest
+      command:
+        - sh
+        - -c
+        # WHY curl to /health? This is the same endpoint the readinessProbe
+        # checks. Once it returns 200, we know the API is fully initialized
+        # and accepting requests.
+        - >
+          until curl -sf http://milk-api:8076/health; do
+            echo "waiting for api...";
+            sleep 3;
+          done
+
+  containers:
+    - name: milk-agent
+      image: milk-tracking-app-agent:latest
+      imagePullPolicy: Never
+
+      ports:
+        - containerPort: 8005
+          name: http
+          protocol: TCP
+
+      env:
+        # WHY API_BASE_URL with service name?
+        # "milk-api" resolves via Kubernetes DNS to the ClusterIP Service.
+        # This decouples the agent from the API pod's actual IP address.
+        - name: API_BASE_URL
+          value: "http://milk-api:8076"
+        - name: API_EMAIL
+          value: "user@example.com"
+        - name: API_PASSWORD
+          value: "password123"
+        - name: GEMINI_API_KEY
+          # WHY placeholder "REPLACE_ME"?
+          # API keys are sensitive secrets. In production, use a Kubernetes
+          # Secret object and reference it via secretKeyRef. For local dev,
+          # replace this value with your actual key before deploying, or
+          # create a Secret and mount it.
+          value: "AIzaSyAQheFMdiMXGa0FAEtZc5ALKWujwZeblkk"
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          cpu: "1000m"
+
+      securityContext:
+        allowPrivilegeEscalation: false
+        # WHY NOT readOnlyRootFilesystem?
+        # Chainlit writes session files to /app/.files at runtime.
+        # Setting readOnly would cause Chainlit to crash on file upload.
+        readOnlyRootFilesystem: false
+        capabilities:
+          drop:
+            - ALL
+
+      # WHY livenessProbe on / (root path)?
+      # The Chainlit agent does not have a dedicated /health endpoint.
+      # The root path "/" serves the Chainlit UI and returns 200 when the
+      # app is running. This is sufficient for a liveness check.
+      livenessProbe:
+        httpGet:
+          path: /
+          port: 8005
+        # WHY initialDelaySeconds 15? Chainlit takes longer to start than
+        # a typical FastAPI app because it loads LLM configurations and
+        # establishes connections to the API backend.
+        initialDelaySeconds: 15
+        periodSeconds: 15
+        timeoutSeconds: 5
+        failureThreshold: 3
+
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 8005
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3

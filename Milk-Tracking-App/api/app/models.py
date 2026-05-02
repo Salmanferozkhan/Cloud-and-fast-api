@@ -90,3 +90,24 @@ class Supplier(SQLModel, table=True):
 
     # Relationship to milk entries
     entries: List["MilkEntry"] = Relationship(back_populates="supplier")
+
+
+class WaterEntry(SQLModel, table=True):
+    """WaterEntry model for daily water bottle delivery records.
+
+    Attributes:
+        id: Primary key, auto-generated.
+        date: Date of the water bottle delivery.
+        bottles: Number of bottles delivered (must be positive).
+        rate_per_bottle: Price per bottle at time of delivery, snapshotted on
+            each row so historical bills are unaffected by future rate changes.
+        created_at: Timestamp when entry was created.
+    """
+
+    __tablename__ = "water_entries"
+
+    id: int | None = Field(default=None, primary_key=True)
+    date: dt.date = Field(..., index=True)
+    bottles: int = Field(..., gt=0)
+    rate_per_bottle: float = Field(default=80.0, gt=0)
+    created_at: dt.datetime = Field(default_factory=utc_now)

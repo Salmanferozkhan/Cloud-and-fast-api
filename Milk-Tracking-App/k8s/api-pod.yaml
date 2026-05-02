@@ -1,0 +1,141 @@
+# =============================================================================
+# Pod: milk-api (FastAPI Backend)
+# =============================================================================
+# WHY an initContainer that waits for the database?
+# - The FastAPI app establishes a database connection pool on startup.
+#   If the database is not yet ready, the app will crash with a connection
+#   refused error. The initContainer blocks until pg_isready succeeds,
+#   ensuring the database is accepting connections before the app starts.
+# - This is the Kubernetes-native equivalent of docker-compose "depends_on"
+#   with a health check condition.
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: milk-api
+  namespace: milk-tracking
+  labels:
+    app: milk-tracking
+    component: api
+spec:
+  restartPolicy: Always
+
+  securityContext:
+    # WHY runAsNonRoot? Enforces that no container in this pod runs as root.
+    # If someone accidentally builds an image that runs as root, Kubernetes
+    # will refuse to start it. Defense-in-depth security measure.
+    runAsNonRoot: true
+    # WHY runAsUser/runAsGroup 1000? Matches the "appuser" UID/GID created
+    # in the Dockerfile. Running as a non-root user limits the damage an
+    # attacker can do if they gain code execution inside the container.
+    runAsUser: 1000
+    runAsGroup: 1000
+    # WHY fsGroup 1000? Ensures any volumes mounted into this pod are
+    # owned by group 1000, so the non-root appuser can read/write to them.
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  # WHY initContainers? They run to completion BEFORE the main container starts.
+  # This creates a dependency chain: DB must be ready -> then API starts.
+  initContainers:
+    - name: wait-for-db
+      image: postgres:16-alpine
+      # WHY imagePullPolicy Never? Same locally-available image as the db pod.
+      imagePullPolicy: Never
+      command:
+        - sh
+        - -c
+        # WHY a loop with pg_isready? pg_isready is the official PostgreSQL
+        # utility to check if the server is accepting connections. We poll
+        # every 2 seconds until it succeeds, then exit 0 to let the main
+        # container start.
+        - >
+          until pg_isready -h milk-db -p 5432 -U milktrack; do
+            echo "waiting for db...";
+            sleep 2;
+          done
+
+  containers:
+    - name: milk-api
+      image: milk-tracking-app-api:latest
+      imagePullPolicy: Never
+
+      ports:
+        - containerPort: 8076
+          name: http
+          protocol: TCP
+
+      env:
+        # WHY the full connection string as an env var?
+        # The FastAPI app reads DATABASE_URL to configure SQLAlchemy/asyncpg.
+        # The hostname "milk-db" resolves to the ClusterIP Service we created,
+        # providing stable connectivity regardless of pod IP changes.
+        - name: DATABASE_URL
+          value: "postgresql+asyncpg://milktrack:milktrack_secret@milk-db:5432/milk_tracking"
+        - name: SECRET_KEY
+          # WHY a placeholder? In production, this MUST come from a Kubernetes
+          # Secret, not be hardcoded. For local dev, this is acceptable.
+          value: "your-super-secret-key-change-in-production"
+        - name: ALGORITHM
+          value: "HS256"
+        - name: ACCESS_TOKEN_EXPIRE_MINUTES
+          # WHY quoted? Kubernetes env values must be strings. The app parses
+          # this to an integer internally.
+          value: "30"
+
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "100m"
+        limits:
+          memory: "512Mi"
+          # WHY 1000m (1 full core) for the API?
+          # FastAPI with async SQLAlchemy can be CPU-intensive during request
+          # handling, especially with JSON serialization and validation.
+          # A full core gives headroom for burst traffic.
+          cpu: "1000m"
+
+      securityContext:
+        # WHY allowPrivilegeEscalation false? Prevents the process from
+        # gaining more privileges than its parent (e.g., via setuid binaries).
+        # Combined with runAsNonRoot, this locks down the container tightly.
+        allowPrivilegeEscalation: false
+        # WHY NOT readOnlyRootFilesystem?
+        # FastAPI/Uvicorn may need to write to /tmp for temporary files.
+        # In production, you could set this to true and mount /tmp as emptyDir.
+        readOnlyRootFilesystem: false
+        capabilities:
+          # WHY drop ALL capabilities? Linux capabilities are fine-grained
+          # root privileges. Dropping all of them means the container cannot
+          # perform any privileged operations (bind to low ports, change file
+          # ownership, etc.). This is the most secure baseline.
+          drop:
+            - ALL
+
+      # WHY livenessProbe with httpGet?
+      # The /health endpoint returns {"status": "healthy"} when the app is
+      # functioning. If it stops responding (deadlock, memory leak), Kubernetes
+      # will restart the container after failureThreshold consecutive failures.
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8076
+        # WHY initialDelaySeconds 10? The FastAPI app needs a few seconds to
+        # start Uvicorn, import modules, and establish the DB connection pool.
+        initialDelaySeconds: 10
+        periodSeconds: 15
+        timeoutSeconds: 5
+        failureThreshold: 3
+
+      # WHY readinessProbe?
+      # Until readiness passes, the milk-api Service will not route traffic
+      # to this pod. This prevents the agent from hitting a half-started API.
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8076
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3

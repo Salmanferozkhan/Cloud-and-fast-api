@@ -1,0 +1,36 @@
+# =============================================================================
+# Service: milk-db (ClusterIP)
+# =============================================================================
+# WHY a Service for the database?
+# - Provides a stable DNS name (milk-db) that other pods can use to connect.
+#   Without a Service, pods would need to know the database pod's IP address,
+#   which changes every time the pod restarts.
+# - ClusterIP (default type) means the database is only reachable from within
+#   the cluster - it is NOT exposed externally, which is correct for security.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: milk-db
+  namespace: milk-tracking
+  labels:
+    app: milk-tracking
+    component: db
+spec:
+  # WHY ClusterIP? The database should never be exposed outside the cluster.
+  # Only the API pod needs to connect to it, and it does so via the internal
+  # DNS name: milk-db.milk-tracking.svc.cluster.local (or just "milk-db"
+  # from within the same namespace).
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  # WHY this selector? The selector matches the labels on the db pod.
+  # Kubernetes routes all traffic sent to milk-db:5432 to pods matching
+  # these labels. If we later switch to a Deployment with replicas,
+  # the Service automatically load-balances across all matching pods.
+  selector:
+    app: milk-tracking
+    component: db

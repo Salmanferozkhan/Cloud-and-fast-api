@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import create_db_and_tables
-from app.routers import auth, entries, reports, suppliers
+from app.routers import auth, entries, reports, suppliers, water
 
 
 @asynccontextmanager
@@ -39,8 +39,11 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:5173",
+        "http://localhost:8005",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:8005",
+        "http://agent:8005",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -52,6 +55,7 @@ app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(suppliers.router, prefix="/api/v1/suppliers")
 app.include_router(entries.router, prefix="/api/v1/entries")
 app.include_router(reports.router, prefix="/api/v1/reports")
+app.include_router(water.router, prefix="/api/v1/water")
 
 
 @app.get("/health")

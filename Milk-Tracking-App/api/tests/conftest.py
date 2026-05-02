@@ -11,7 +11,7 @@ from sqlmodel import SQLModel
 
 from app.database import get_session
 # Import models to register them with SQLModel.metadata
-from app.models import MilkEntry, Supplier, User  # noqa: F401
+from app.models import MilkEntry, Supplier, User, WaterEntry  # noqa: F401
 from main import app
 
 # In-memory SQLite database URL for testing
