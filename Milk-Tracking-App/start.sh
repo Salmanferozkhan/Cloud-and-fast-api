@@ -14,4 +14,8 @@ for i in $(seq 1 30); do
 done
 
 cd /app/agent
+# Chainlit auto-enables a SQL data layer when DATABASE_URL is set, but it
+# expects its own Thread/Step tables. Our Neon DB is for the API only —
+# unset so chainlit falls back to in-memory (chat history not persisted).
+unset DATABASE_URL
 exec chainlit run chainlit_app.py --host 0.0.0.0 --port "${PORT:-7860}" --headless
